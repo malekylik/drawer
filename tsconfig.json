@@ -1,0 +1,19 @@
+{
+  "files": ["src/main.ts"],
+  "include": ["src/@types"],
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "CommonJS",
+    "moduleResolution":"node",
+    "allowJs": false,
+    "strict": true,
+    "noImplicitAny": true,
+    "alwaysStrict": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "strictFunctionTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "baseUrl": "."
+  }
+}
