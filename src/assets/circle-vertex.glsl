@@ -6,14 +6,17 @@ uniform mat4x4 MM;
 
 layout(location = 0) in vec3 vPosition;
 layout(location = 1) in vec2 vTextureCoord;
+layout(location = 2) in float vVertexId;
 
 out vec2 textureCoord;
+out float vertexId;
 
 void main()
 {
   gl_Position = P * inverse(MV) * MM * vec4(vPosition, 1.0);
 
   textureCoord = vTextureCoord;
+  vertexId = vVertexId;
 
   // radius = vRadius;
 }

@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "gulp",
     "start": "gulp build:watch",
-    "lint": "eslint \"./src/**/*.ts\""
+    "lint": "eslint \"./src/**/*.ts\"",
+    "lint:types": "tsc --noEmit"
   },
   "author": "",
   "license": "ISC",

@@ -1,5 +1,5 @@
 import { convertScreenCoordToWorldCoord } from '../math/screen';
-import { createVec2, Vec3 } from '../math/vec';
+import { createVec2, Vec2, Vec3 } from '../math/vec';
 
 export interface CanvasKeyboardEvent {
   type: 'keyup' | 'keypress' | 'keydown';
@@ -16,7 +16,10 @@ export interface CanvasMouseEvent {
 export type CanvasEvent = CanvasMouseEvent | CanvasKeyboardEvent;
 
 // Aircraft_principal_axes
-export function bindEvents(canvas: HTMLCanvasElement, cameraPosition: Vec3, paitingLayer: number, screenWidth: number, screenHeight: number, fovy: number, aspect: number) {
+export function bindEvents(
+  canvas: HTMLCanvasElement, cameraPosition: Vec3, paitingLayer: number, screenWidth: number, screenHeight: number, fovy: number, aspect: number,
+  mousePosition: Vec2,
+) {
   const eventStack: Array<CanvasEvent> = [];
   const keyboard = new Uint8Array(128);
 
@@ -69,6 +72,9 @@ export function bindEvents(canvas: HTMLCanvasElement, cameraPosition: Vec3, pait
     const coord = createVec2(e.offsetX, e.offsetY);
 
     convertScreenCoordToWorldCoord(coord, cameraPosition, paitingLayer, screenWidth, screenHeight, fovy, aspect);
+
+    mousePosition.x = e.offsetX;
+    mousePosition.y = e.offsetY;
 
     eventStack.push({
       type: 'mousemove',

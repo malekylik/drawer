@@ -1,24 +1,29 @@
 import { Vec2 } from '../math/vec';
 
 export interface LineComponent {
-  start: Vec2;
+  position: Vec2;
   length: number;
   scale: number;
   rotate: number;
   line: number;
+  id: number;
 }
 
 export interface CircleComponent {
-  originX: number; originY: number;
+  position: Vec2;
   radius: number;
+  id: number;
 }
 
-export function createLine(start: Vec2, length: number): LineComponent {
+export type Component = LineComponent | CircleComponent;
+
+export function createLine(position: Vec2, length: number, id: number): LineComponent {
   return ({
-    start,
+    position,
     length,
     scale: 1.0,
     rotate: 0.0,
-    line: -1
+    line: -1,
+    id
   });
 }

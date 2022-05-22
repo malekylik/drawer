@@ -12,7 +12,13 @@ import { KeyboardKeyCode } from './event/const';
 import { Renderer } from './render/renderer';
 import { LineComponent, CircleComponent, createLine } from './render/components';
 import { paitingLayer } from './render/const';
+import { createUniqeIdGenerator } from './utils/uniqeId';
+import { interpretAsInt32 } from './utils/memory';
+// import { binaryFind } from './utils/array';
 
+const getNewId = createUniqeIdGenerator(1);
+
+const mousePosition = createVec2(0, 0);
 
 enum DrawMode {
   line = 'line',
@@ -33,6 +39,9 @@ const screenWidth = 600;
 const screenHeight = 400;
 
 const canvas: HTMLCanvasElement = document.getElementById('canvas') as HTMLCanvasElement;
+const componentIdViewer: HTMLSpanElement = document.getElementById('component-id') as HTMLSpanElement;
+const mousePostionViewer: HTMLSpanElement = document.getElementById('mouse-position') as HTMLSpanElement;
+const circleCountViewer: HTMLSpanElement = document.getElementById('circle-count') as HTMLSpanElement;
 
 canvas.width = screenWidth;
 canvas.height = screenHeight;
@@ -50,7 +59,7 @@ const aspect = screenWidth / screenHeight;
 
 const cameraPosition = createVec3(0, 0, 0);
 
-const { keyboard, eventStack } = bindEvents(canvas, cameraPosition, paitingLayer, screenWidth, screenHeight, fovy, aspect);
+const { keyboard, eventStack } = bindEvents(canvas, cameraPosition, paitingLayer, screenWidth, screenHeight, fovy, aspect, mousePosition);
 
 let drawingLine = false;
 let drawingCirle = false;
@@ -107,7 +116,7 @@ function renderLines() {
 
     if (line.line === nextLines.line) {
       const circle = {
-        originX: nextLines.start.x, originY: nextLines.start.y, radius: 0.1 / 2
+        position: nextLines.position, radius: 0.1 / 2, id: line.id
       };
 
       renderer.drawCircle(circle);
@@ -138,6 +147,7 @@ function handleEvents() {
           createLine(
             createVec2(event.x, event.y),
             length,
+            getNewId(),
           )
         );
 
@@ -146,8 +156,8 @@ function handleEvents() {
 
         const lastLine = lines[lines.length - 1] as LineComponent;
 
-        const lengthX = event.x - lastLine.start.x;
-        const lengthY = event.y - lastLine.start.y;
+        const lengthX = event.x - lastLine.position.x;
+        const lengthY = event.y - lastLine.position.y;
 
         let angle = getAngleFromLineProjection(lengthX, lengthY);
 
@@ -169,6 +179,7 @@ function handleEvents() {
           createLine(
             createVec2(event.x, event.y),
             length,
+            getNewId(),
           )
         );
 
@@ -178,8 +189,8 @@ function handleEvents() {
       if (event.type === 'mousemove' && drawingLine) {
         const lastLine = lines[lines.length - 1] as LineComponent;
 
-        const lengthX = event.x - lastLine.start.x;
-        const lengthY = event.y - lastLine.start.y;
+        const lengthX = event.x - lastLine.position.x;
+        const lengthY = event.y - lastLine.position.y;
 
         let angle = getAngleFromLineProjection(lengthX, lengthY);
 
@@ -208,8 +219,9 @@ function handleEvents() {
     if (mode === DrawMode.circle) {
       if (event.type === 'mousedown' && !drawingCirle) {
         circles.push({
-          originX: event.x, originY: event.y,
-          radius: 0.1
+          position: createVec2(event.x, event.y),
+          radius: 0.1,
+          id: getNewId()
         });
 
         drawingCirle = true;
@@ -217,8 +229,9 @@ function handleEvents() {
 
       if (event.type === 'mousemove' && drawingCirle) {
         circles.push({
-          originX: event.x, originY: event.y,
-          radius: 0.1
+          position: createVec2(event.x, event.y),
+          radius: 0.1,
+          id: getNewId()
         });
       }
 
@@ -237,13 +250,23 @@ function handleEvents() {
   }
 }
 
+function updateHTML() {
+  const b = renderer.getIdDataReader().readPixel(mousePosition.x, screenHeight - mousePosition.y);
+  const componentId = interpretAsInt32(b[0] as number, b[1] as number, b[2] as number, b[3] as number);
+  // const component = componentId !== 0 ? binaryFind(lines, 0, lines.length, l => componentId - l.id) : null;
+
+  componentIdViewer.innerText = `current component id: ${componentId === 0 ? 'no selected component' : componentId}`;
+  mousePostionViewer.innerText = `mouse position x: ${mousePosition.x} y: ${mousePosition.y}`;
+  circleCountViewer.innerText = `circle count: ${renderer.getDrawStat().drawedCircles} flushed count: ${renderer.getDrawStat().circleFlushed}`;
+}
+
 // let cancel = null;
 
 // TODO: check with glm about transpose projection
 const projectionMatrix = (createPerspectiveMatrix(fovy, aspect, near, far));
 
 function loop() {
-  // cancel = requestAnimationFrame(loop);
+  requestAnimationFrame(loop);
 
   handleEvents();
 
@@ -259,7 +282,13 @@ function loop() {
   renderCircles();
 
   renderer.endScene();
+
+  updateHTML();
 }
+
+(window as any).getIds = () => {
+  console.log(renderer.getIdDataReader().readBuffer());
+};
 
 // setTimeout(() => {
 //   cancelAnimationFrame(cancel);
