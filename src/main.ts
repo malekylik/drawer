@@ -1,4 +1,4 @@
-import { createVec2, createVec3 } from './math/vec';
+import { createVec2, createVec3, Vec2 } from './math/vec';
 import {
   createPerspectiveMatrix, createUnitMatrix,
   createTranslationMatrix, createRotationMatrix,
@@ -6,18 +6,37 @@ import {
   transposeMatrix,
 } from './math/matix';
 import { toRadians } from './math/utils';
-import { getAngleFromLineProjection } from './math/screen';
+import { convertScreenCoordToWorldCoord, getAngleFromLineProjection } from './math/screen';
 import { bindEvents, CanvasEvent } from './event/canvas-event';
 import { KeyboardKeyCode } from './event/const';
-import { Renderer } from './render/renderer';
+import { Renderer, RendererStat } from './render/renderer';
 import { LineComponent, CircleComponent, createLine } from './render/components';
 import { paitingLayer } from './render/const';
 import { createUniqeIdGenerator } from './utils/uniqeId';
 import { interpretAsInt32 } from './utils/memory';
+import { shaderStore, ShaderProgramIndex } from './render/shader-store';
+import { GLProgram } from './render/shader';
+import { createFragmentGLShader, createVertexGLShader } from './render/gl-api';
+import lineVertexShader from './assets/line-vertex.glsl';
+import circleVertexShader from './assets/circle-vertex.glsl';
+import linePixelShader from './assets/line-pixel.glsl';
+import circlePixelShader from './assets/circle-pixel.glsl';
+import textureVertexShader from './assets/texture-vertex.glsl';
+import texturePixelShader from './assets/texture-pixel.glsl';
+
 // import { binaryFind } from './utils/array';
 
 const getNewId = createUniqeIdGenerator(1);
 
+let prevComponentId = -1;
+let prevRendererStat: RendererStat = {
+  flushedSqures: -1,
+  flushedCircles: -1,
+  flushedBatchSquresCount: -1,
+  flushedBatchCirclesCount: -1,
+};
+
+const prevMousePosition = createVec2(-1, -1);
 const mousePosition = createVec2(0, 0);
 
 enum DrawMode {
@@ -25,7 +44,7 @@ enum DrawMode {
   circle = 'circle',
 }
 
-let mode: DrawMode = DrawMode.line; // line circle
+let mode: DrawMode = DrawMode.line;
 
 const lines: Array<LineComponent> = [
 
@@ -41,6 +60,7 @@ const screenHeight = 400;
 const canvas: HTMLCanvasElement = document.getElementById('canvas') as HTMLCanvasElement;
 const componentIdViewer: HTMLSpanElement = document.getElementById('component-id') as HTMLSpanElement;
 const mousePostionViewer: HTMLSpanElement = document.getElementById('mouse-position') as HTMLSpanElement;
+const lineCountViewer: HTMLSpanElement = document.getElementById('line-count') as HTMLSpanElement;
 const circleCountViewer: HTMLSpanElement = document.getElementById('circle-count') as HTMLSpanElement;
 
 canvas.width = screenWidth;
@@ -49,6 +69,21 @@ canvas.style.width = `${screenWidth}px`;
 canvas.style.height = `${screenHeight}px`;
 
 const gl = canvas.getContext('webgl2', { antialias: false }) as WebGL2RenderingContext;
+
+shaderStore.setProgram(
+  ShaderProgramIndex.texture,
+  new GLProgram(gl, createVertexGLShader(gl, textureVertexShader) as WebGLShader, createFragmentGLShader(gl, texturePixelShader) as WebGLShader)
+);
+
+shaderStore.setProgram(
+  ShaderProgramIndex.square,
+  new GLProgram(gl, createVertexGLShader(gl, lineVertexShader) as WebGLShader, createFragmentGLShader(gl, linePixelShader) as WebGLShader)
+);
+
+shaderStore.setProgram(
+  ShaderProgramIndex.circle,
+  new GLProgram(gl, createVertexGLShader(gl, circleVertexShader) as WebGLShader, createFragmentGLShader(gl, circlePixelShader) as WebGLShader)
+);
 
 const renderer = new Renderer(gl, screenWidth, screenHeight);
 
@@ -67,40 +102,52 @@ let drawingCirle = false;
 let lineCount = 0;
 
 function updateCamera() {
-  // TODO: use function
-  // TODO: make it slow when it goes closer to near
+  let isUpdated = false;
+
+  // TODO: use more convinient func
   let updateValue = Math.sin(toRadians(
     ((cameraPosition.z + 2.8) / 9.0 * 8.0) + 270.0 + 11.0
   )) + 1.0;
   updateValue = Math.max(updateValue , 0.005);
 
-  // -2.9
+  // TODO: change line end while drawing line and zooming in/out
   if (keyboard[KeyboardKeyCode.wKey]) {
     cameraPosition.z = cameraPosition.z - updateValue < -2.8 ? -2.8 : cameraPosition.z - updateValue;
+
+    isUpdated = true;
   }
 
-  // 6.0
   if (keyboard[KeyboardKeyCode.sKey]) {
     cameraPosition.z = cameraPosition.z + updateValue > 6.0 ? 6.0 : cameraPosition.z + updateValue;
-  }
 
-  // updateValue = updateValue !== 0.1 ? updateValue * 2 : updateValue;
+    isUpdated = true;
+  }
 
   if (keyboard[KeyboardKeyCode.dKey]) {
     cameraPosition.x += updateValue;
+
+    isUpdated = true;
   }
 
   if (keyboard[KeyboardKeyCode.aKey]) {
     cameraPosition.x -= updateValue;
+
+    isUpdated = true;
   }
 
   if (keyboard[KeyboardKeyCode.spaceKey]) {
     cameraPosition.y += updateValue;
+
+    isUpdated = true;
   }
 
   if (keyboard[KeyboardKeyCode.zKey]) {
     cameraPosition.y -= updateValue;
+
+    isUpdated = true;
   }
+
+  return isUpdated;
 }
 
 function renderLines() {
@@ -130,6 +177,26 @@ function renderCircles() {
 
     renderer.drawCircle(circle);
   }
+}
+
+function handleMouseMoveForLineDrawing(coord: Vec2) {
+  const lastLine = lines[lines.length - 1] as LineComponent;
+
+  const lengthX = coord.x - lastLine.position.x;
+  const lengthY = coord.y - lastLine.position.y;
+
+  let angle = getAngleFromLineProjection(lengthX, lengthY);
+
+  let lineLength = 0.0;
+
+  if (angle === 90 || angle === 270) {
+    lineLength = lengthY;
+  } else {
+    lineLength = (lengthX) / Math.cos(toRadians(angle));
+  }
+
+  lastLine.length = lineLength;
+  lastLine.rotate = angle;
 }
 
 function handleEvents() {
@@ -169,7 +236,7 @@ function handleEvents() {
           lineLength = (lengthX) / Math.cos(toRadians(angle));
         }
 
-        // TODO: find out linear transformation, transform screen cordination to world
+        // TODO: find out linear transformation, transform screen cordination to world (use inverse projection matrix)
         lastLine.length = lineLength;
         lastLine.rotate = angle;
 
@@ -187,24 +254,7 @@ function handleEvents() {
       }
 
       if (event.type === 'mousemove' && drawingLine) {
-        const lastLine = lines[lines.length - 1] as LineComponent;
-
-        const lengthX = event.x - lastLine.position.x;
-        const lengthY = event.y - lastLine.position.y;
-
-        let angle = getAngleFromLineProjection(lengthX, lengthY);
-
-        let lineLength = 0.0;
-
-        if (angle === 90 || angle === 270) {
-          lineLength = lengthY;
-        } else {
-          lineLength = (lengthX) / Math.cos(toRadians(angle));
-        }
-
-        // TODO: find out linear transformation, transform screen cordination to world
-        lastLine.length = lineLength;
-        lastLine.rotate = angle;
+        handleMouseMoveForLineDrawing(event);
       }
 
       if (event.type === 'keypress' && event.key === 'Enter' && drawingLine) {
@@ -250,14 +300,52 @@ function handleEvents() {
   }
 }
 
+function onCamerUpdate() {
+  if (drawingLine) {
+    const coord = createVec2(mousePosition.x, mousePosition.y);
+
+    convertScreenCoordToWorldCoord(coord, cameraPosition, paitingLayer, screenWidth, screenHeight, fovy, aspect);
+
+    handleMouseMoveForLineDrawing(coord);
+  }
+}
+
 function updateHTML() {
+  const idDataReader = renderer.getIdDataReader();
+
+  idDataReader.bind();
   const b = renderer.getIdDataReader().readPixel(mousePosition.x, screenHeight - mousePosition.y);
+  idDataReader.unbind();
+
   const componentId = interpretAsInt32(b[0] as number, b[1] as number, b[2] as number, b[3] as number);
   // const component = componentId !== 0 ? binaryFind(lines, 0, lines.length, l => componentId - l.id) : null;
 
-  componentIdViewer.innerText = `current component id: ${componentId === 0 ? 'no selected component' : componentId}`;
-  mousePostionViewer.innerText = `mouse position x: ${mousePosition.x} y: ${mousePosition.y}`;
-  circleCountViewer.innerText = `circle count: ${renderer.getDrawStat().drawedCircles} flushed count: ${renderer.getDrawStat().circleFlushed}`;
+  if (prevComponentId !== componentId) {
+    componentIdViewer.innerText = `current component id: ${componentId === 0 ? 'no selected component' : componentId}`;
+
+    prevComponentId = componentId;
+  }
+
+  if (prevMousePosition.x !== mousePosition.x || prevMousePosition.y !== mousePosition.y) {
+    mousePostionViewer.innerText = `mouse position x: ${mousePosition.x} y: ${mousePosition.y}`;
+
+    prevMousePosition.x = mousePosition.x;
+    prevMousePosition.y = mousePosition.y;
+  }
+
+  const rendererStat = renderer.getDrawStat();
+
+  if (
+    prevRendererStat.flushedSqures              !== rendererStat.flushedSqures            ||
+    prevRendererStat.flushedCircles             !== rendererStat.flushedCircles           ||
+    prevRendererStat.flushedBatchSquresCount    !== rendererStat.flushedBatchSquresCount  ||
+    prevRendererStat.flushedBatchCirclesCount   !== rendererStat.flushedBatchCirclesCount
+  ) {
+    lineCountViewer.innerText = `square count: ${rendererStat.flushedSqures} flushed square batch count: ${rendererStat.flushedBatchSquresCount}`;
+    circleCountViewer.innerText = `circle count: ${rendererStat.flushedCircles} flushed circle batch count: ${rendererStat.flushedBatchCirclesCount}`;
+
+    prevRendererStat = rendererStat;
+  }
 }
 
 // let cancel = null;
@@ -274,7 +362,11 @@ function loop() {
   viewMatrix = multiplyMatrix(viewMatrix, createRotationMatrix(0, 0, 0)); // rotate
   viewMatrix = multiplyMatrix(viewMatrix, createTranslationMatrix(cameraPosition.x, cameraPosition.y, cameraPosition.z)); // translate
 
-  updateCamera();
+  const isCameraUpdated = updateCamera();
+
+  if (isCameraUpdated) {
+    onCamerUpdate();
+  }
 
   renderer.beginScene(projectionMatrix, transposeMatrix(viewMatrix));
 
@@ -285,10 +377,6 @@ function loop() {
 
   updateHTML();
 }
-
-(window as any).getIds = () => {
-  console.log(renderer.getIdDataReader().readBuffer());
-};
 
 // setTimeout(() => {
 //   cancelAnimationFrame(cancel);

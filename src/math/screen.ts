@@ -26,7 +26,6 @@ export function getAngleFromLineProjection(projectionX: number, projectionY: num
 }
 
 export function convertScreenCoordToWorldCoord(coord: Vec2, cameraPosition: Vec3, paitingLayer: number, screenWidth: number, screenHeight: number, fovy: number, aspect: number) {
-
   const offsetXNormalized = normalizeXCoord(coord.x, screenWidth);
   const offsetYNormalized = normalizeYCoord(coord.y, screenHeight);
 

@@ -5,85 +5,96 @@ import {
   createTranslationMatrix, createRotationMatrix, createScaleMatrix,
 } from '../math/matix';
 import { paitingLayer } from './const';
-import { creareGLProgram } from './gl-api';
 import { CircleComponent, LineComponent } from './components';
 import { toRadians } from '../math/utils';
 
-import lineVertexShader from '../assets/line-vertex.glsl';
-import circleVertexShader from '../assets/circle-vertex.glsl';
-import linePixelShader from '../assets/line-pixel.glsl';
-import circlePixelShader from '../assets/circle-pixel.glsl';
-import textureVertexShader from '../assets/texture-vertex.glsl';
-import texturePixelShader from '../assets/texture-pixel.glsl';
+import { shaderStore, ShaderProgramIndex } from './shader-store';
+import { GLProgram } from './shader';
+import { QUAD_WITH_TEXTURE_COORD_DATA } from './const';
+import { AttribType, GLVBO } from './vbo';
+import { GLTexture, TextureConfig, TextureFormat } from './texture';
+import { BufferAttachmentOption, BufferAttacment, GLFramebuffer } from './framebuffer';
+import { RenderStat } from './render-stat';
 
-const dataPerVertex = 4;
-const dataPerLine = dataPerVertex * 6;
-const dataPerCircleVertex = 6;
+const circleLayout = [
+  {
+    type: AttribType.FLOAT, // coord
+    componentsCount: 3,
+  },
+  {
+    type: AttribType.FLOAT, // uv
+    componentsCount: 2,
+  },
+  {
+    type: AttribType.FLOAT, // id
+    componentsCount: 1,
+  },
+];
+
+const squareLayout = [
+  {
+    type: AttribType.FLOAT, // coord
+    componentsCount: 3,
+  },
+  {
+    type: AttribType.FLOAT, // id
+    componentsCount: 1,
+  },
+];
+
+const outLayout = [
+  {
+    type: AttribType.FLOAT, // coord
+    componentsCount: 3,
+  },
+  {
+    type: AttribType.FLOAT, // uv
+    componentsCount: 2,
+  },
+];
+
+const dataPerLineVertex = squareLayout.reduce((prev, curr) => prev + curr.componentsCount, 0);
+const dataPerLine = dataPerLineVertex * 6;
+const dataPerCircleVertex = circleLayout.reduce((prev, curr) => prev + curr.componentsCount, 0);
 const dataPerCircle = dataPerCircleVertex * 6;
 const lineBufferSize = 10000;
 const circleBufferSize = 100;
 
-export const QUAD_WITH_TEXTURE_COORD_DATA = Float32Array.from([
-  // first triangle
-  -1.0, 1.0, 0.0, // top-left v0
-  0.0, 0.0, // texCoord v0
+const colorTexutureOptions: TextureConfig = {
+  imageFormat: { internalFormat: TextureFormat.RGBA, format: TextureFormat.RGBA }
+};
 
-  1.0, 1.0, 0.0, // top-right v1
-  1.0, 0.0, // texCoord v1
+const idTexutureOptions: TextureConfig = {
+  imageFormat: { internalFormat: TextureFormat.RGBA8UI, format: TextureFormat.RGBA_INTEGER }
+};
 
-  -1.0, -1.0, 0.0, // bottom-left v2
-  0.0, 1.0, // texCoord v2
+export interface RendererStat {
+  flushedSqures: number;
+  flushedCircles: number;
 
-  // second triangle
-  1.0, 1.0, 0.0, // top-rigth v1
-  1.0, 0.0, // texCoord v1
-
-  1.0, -1.0, 0.0, // bottom-right v4
-  1.0, 1.0, // texCoord v4
-
-  -1.0, -1.0, 0.0, // bottom-left v2
-  0.0, 1.0, // texCoord v2
-]);
+  flushedBatchSquresCount: number;
+  flushedBatchCirclesCount: number;
+}
 
 export class Renderer {
   private gl: WebGL2RenderingContext;
   private projection: Matrix | null;
   private camera: Matrix | null;
 
-  private squreData: Float32Array;
-  private circleData: Float32Array;
-
   private squreCount: number;
   private circleCount: number;
 
-  private mainVBO: WebGLBuffer;
+  private squreData: Float32Array;
+  private circleData: Float32Array;
 
-  private squreVBO: WebGLBuffer;
-  private squreProgram: WebGLProgram;
-  private squreUniforms: {
-    projectionLocation: WebGLUniformLocation;
-    modelViewLocation: WebGLUniformLocation;
-    modelLocation: WebGLUniformLocation;
-  };
+  private mainVBO: GLVBO;
+  private squreVBO: GLVBO;
+  private circleVBO: GLVBO;
 
-  private circleVBO: WebGLBuffer;
-  private circleProgram: WebGLProgram;
-  private circleUniforms: {
-    projectionLocation: WebGLUniformLocation;
-    modelViewLocation: WebGLUniformLocation;
-    modelLocation: WebGLUniformLocation;
-  };
+  private framebuffer: GLFramebuffer;
+  private colorTexture: GLTexture;
 
-  private _flushedLine: number;
-  private _flushedCircle: number;
-
-  private _lastDrawedCircle: number;
-
-  private framebuffer: WebGLFramebuffer;
-  private colorTexture: WebGLTexture;
-  private idTexture: WebGLTexture;
-
-  private mainProgram: WebGLProgram;
+  private stat: RenderStat;
 
   constructor (gl: WebGL2RenderingContext, screenWidth: number, screenHeight: number) {
     this.gl = gl;
@@ -97,33 +108,17 @@ export class Renderer {
     this.squreCount = 0;
     this.circleCount = 0;
 
-    this._flushedLine = 0;
-    this._flushedCircle = 0;
-    this._lastDrawedCircle = 0;
+    this.stat = new RenderStat();
 
-    this.squreVBO = gl.createBuffer() as WebGLBuffer;
+    this.squreVBO = new GLVBO(gl, squareLayout);
+    this.squreVBO.bind();
+    this.squreVBO.setData(this.squreData);
 
-    this.mainProgram = creareGLProgram(gl, textureVertexShader, texturePixelShader) as WebGLProgram;
+    this.mainVBO = new GLVBO(gl, outLayout);
 
-    this.mainVBO = gl.createBuffer() as WebGLBuffer;
-
-    this.squreProgram = creareGLProgram(gl, lineVertexShader, linePixelShader) as WebGLProgram;
-
-    this.squreUniforms = {
-      modelViewLocation: gl.getUniformLocation(this.squreProgram, 'MV') as WebGLUniformLocation,
-      modelLocation: gl.getUniformLocation(this.squreProgram, 'MM') as WebGLUniformLocation,
-      projectionLocation: gl.getUniformLocation(this.squreProgram, 'P') as WebGLUniformLocation,
-    };
-
-    this.circleVBO = gl.createBuffer() as WebGLBuffer;
-
-    this.circleProgram = creareGLProgram(gl, circleVertexShader, circlePixelShader) as WebGLProgram;
-
-    this.circleUniforms = {
-      modelViewLocation: gl.getUniformLocation(this.circleProgram, 'MV') as WebGLUniformLocation,
-      modelLocation: gl.getUniformLocation(this.circleProgram, 'MM') as WebGLUniformLocation,
-      projectionLocation: gl.getUniformLocation(this.circleProgram, 'P') as WebGLUniformLocation,
-    };
+    this.circleVBO = new GLVBO(gl, circleLayout);
+    this.circleVBO.bind();
+    this.circleVBO.setData(this.circleData);
 
     gl.viewport(0, 0, screenWidth, screenHeight);
     gl.enable(gl.DEPTH_TEST);
@@ -132,54 +127,31 @@ export class Renderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    const frameBuffer = gl.createFramebuffer() as WebGLFramebuffer;
+    const colorTexture = new GLTexture(gl, 600, 400, null, colorTexutureOptions);
+    const idTexture = new GLTexture(gl, 600, 400, null, idTexutureOptions);
 
-    const colorText = gl.createTexture() as WebGLTexture;
-    gl.bindTexture(gl.TEXTURE_2D, colorText);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 600, 400, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-
-    const idText = gl.createTexture() as WebGLTexture;
-    gl.bindTexture(gl.TEXTURE_2D, idText);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8UI, 600, 400, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-
-    const rbo = gl.createRenderbuffer();
+    const rbo = gl.createRenderbuffer() as WebGLRenderbuffer;
     gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, 600, 400);
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer);
+    const bufferOptions: Array<BufferAttachmentOption> = [
+      { type: BufferAttacment.color, buffer: colorTexture, name: 'color' },
+      { type: BufferAttacment.color, buffer: idTexture,    name: 'id'    },
+      { type: BufferAttacment.depth, buffer: rbo,                        },
+    ];
 
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rbo);
+    const framebuffer = new GLFramebuffer(gl, bufferOptions);
 
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, colorText, 0);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, idText, 0);
+    this.framebuffer = framebuffer;
+    this.colorTexture = colorTexture;
 
-    this.gl.drawBuffers([
-      this.gl.COLOR_ATTACHMENT0,
-      this.gl.COLOR_ATTACHMENT1,
-    ]);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    this.framebuffer = frameBuffer;
-    this.colorTexture = colorText;
-    this.idTexture = idText;
-
-    gl.useProgram(this.mainProgram);
-
-    gl.uniform1i(gl.getUniformLocation(this.mainProgram, 'outTexture'), 0); //TODO: why can't use gl.TEXTURE0
+    (shaderStore.getProgram(ShaderProgramIndex.texture) as GLProgram).useProgram();
+    (shaderStore.getProgram(ShaderProgramIndex.texture) as GLProgram).setTextureUniform('outTexture', 0); // TODO: why can't use gl.TEXTURE0
   }
 
   beginScene(projection: Matrix, camera: Matrix) {
-    this._flushedLine = 0; // TODO: delete
-    this._flushedCircle = 0;
-    this._lastDrawedCircle = 0;
+    this.stat.clear();
 
     this.projection = projection;
     this.camera = camera;
@@ -191,12 +163,12 @@ export class Renderer {
     this.squreCount = 0;
     this.circleCount = 0;
 
-    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+    this.framebuffer.bind();
 
-    this.gl.clearBufferfv(this.gl.COLOR, 0, new Float32Array([0, 0, 0, 1.0]));
-    this.gl.clearBufferuiv(this.gl.COLOR, 1, new Uint32Array([0, 0, 0, 0]));
+    this.framebuffer.clearColorBufferFloat('color', 0, 0, 0, 1.0);
+    this.framebuffer.clearColorBufferUInt('id', 0, 0, 0, 0);
 
-    this.gl.clearBufferfi(this.gl.DEPTH_STENCIL, 0, 1.0, 0); // TODO: why depth = 1.0
+    this.framebuffer.clearDepthBuffer();
   }
 
   drawLine(line: LineComponent) {
@@ -243,41 +215,41 @@ export class Renderer {
       rightBottom = multiplyMatrix(translate, rightBottom);
     }
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 0 + 0] = getMatrixValue(leftTop, 0, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 0 + 1] = getMatrixValue(leftTop, 1, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 0 + 2] = getMatrixValue(leftTop, 2, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 0] = getMatrixValue(leftTop, 0, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 1] = getMatrixValue(leftTop, 1, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 2] = getMatrixValue(leftTop, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 0 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 3] = id;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 1 + 0] = getMatrixValue(rightTop, 0, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 1 + 1] = getMatrixValue(rightTop, 1, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 1 + 2] = getMatrixValue(rightTop, 2, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 0] = getMatrixValue(rightTop, 0, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 1] = getMatrixValue(rightTop, 1, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 1 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 3] = id;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 2 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 2 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 2 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 2 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 3] = id;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 3 + 0] = getMatrixValue(rightBottom, 0, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 3 + 1] = getMatrixValue(rightBottom, 1, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 3 + 2] = getMatrixValue(rightBottom, 2, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 0] = getMatrixValue(rightBottom, 0, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 1] = getMatrixValue(rightBottom, 1, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 2] = getMatrixValue(rightBottom, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 3 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 3] = id;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 4 + 0] = getMatrixValue(rightTop, 0, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 4 + 1] = getMatrixValue(rightTop, 1, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 4 + 2] = getMatrixValue(rightTop, 2, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 0] = getMatrixValue(rightTop, 0, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 1] = getMatrixValue(rightTop, 1, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 4 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 3] = id;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 5 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 5 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 5 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerVertex * 5 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 3] = id;
 
     this.squreCount += 1;
   }
@@ -313,62 +285,62 @@ export class Renderer {
     rightTop =  multiplyMatrix(translate, rightTop);
     rightBottom = multiplyMatrix(translate, rightBottom);
 
-    const dataPerVertex = 6;
+    // const dataPerVertex = 6;
     const id = circle.id;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 0 + 0] = getMatrixValue(leftTop, 0, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 0 + 1] = getMatrixValue(leftTop, 1, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 0 + 2] = getMatrixValue(leftTop, 2, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 0] = getMatrixValue(leftTop, 0, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 1] = getMatrixValue(leftTop, 1, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 2] = getMatrixValue(leftTop, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 0 + 3] = 0.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 0 + 4] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 3] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 4] = 1.0;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 0 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 5] = id;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 1 + 0] = getMatrixValue(rightTop, 0, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 1 + 1] = getMatrixValue(rightTop, 1, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 1 + 2] = getMatrixValue(rightTop, 2, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 0] = getMatrixValue(rightTop, 0, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 1] = getMatrixValue(rightTop, 1, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 1 + 3] = 1.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 1 + 4] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 3] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 4] = 1.0;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 1 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 5] = id;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 2 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 2 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 2 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 2 + 3] = 0.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 2 + 4] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 3] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 4] = 0.0;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 2 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 5] = id;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 3 + 0] = getMatrixValue(rightBottom, 0, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 3 + 1] = getMatrixValue(rightBottom, 1, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 3 + 2] = getMatrixValue(rightBottom, 2, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 0] = getMatrixValue(rightBottom, 0, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 1] = getMatrixValue(rightBottom, 1, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 2] = getMatrixValue(rightBottom, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 3 + 3] = 1.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 3 + 4] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 3] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 4] = 0.0;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 3 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 5] = id;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 4 + 0] = getMatrixValue(rightTop, 0, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 4 + 1] = getMatrixValue(rightTop, 1, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 4 + 2] = getMatrixValue(rightTop, 2, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 0] = getMatrixValue(rightTop, 0, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 1] = getMatrixValue(rightTop, 1, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 4 + 3] = 1.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 4 + 4] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 3] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 4] = 1.0;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 4 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 5] = id;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 5 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 5 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 5 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 5 + 3] = 0.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 5 + 4] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 3] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 4] = 0.0;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerVertex * 5 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 5] = id;
 
     this.circleCount += 1;
   }
@@ -376,23 +348,16 @@ export class Renderer {
   endScene() {
     this.flush();
 
-    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    this.framebuffer.unbind();
 
-    this.gl.useProgram(this.mainProgram);
+    (shaderStore.getProgram(ShaderProgramIndex.texture) as GLProgram).useProgram();
 
     this.gl.activeTexture(this.gl.TEXTURE0);
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.colorTexture);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.colorTexture.getGLTexture());
 
-    this.gl.activeTexture(this.gl.TEXTURE1);
-
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.mainVBO);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, QUAD_WITH_TEXTURE_COORD_DATA, this.gl.STATIC_DRAW);
-
-    this.gl.vertexAttribPointer(0, 3, this.gl.FLOAT, false, Float32Array.BYTES_PER_ELEMENT * 5, 0);
-    this.gl.enableVertexAttribArray(0);
-
-    this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, Float32Array.BYTES_PER_ELEMENT * 5, Float32Array.BYTES_PER_ELEMENT * 3);
-    this.gl.enableVertexAttribArray(1);
+    this.mainVBO.bind();
+    this.mainVBO.setData(QUAD_WITH_TEXTURE_COORD_DATA);
+    this.mainVBO.activateAllAttribPointers();
 
     this.gl.drawArrays(this.gl.TRIANGLES, 0, QUAD_WITH_TEXTURE_COORD_DATA.length);
 
@@ -401,59 +366,47 @@ export class Renderer {
 
     this.squreCount = 0;
     this.circleCount = 0;
-
-    // console.log('flush squre count', flushLine);
-    // console.log('flush circle count', flushCircle);
   }
 
   flush() {
     let modelMatrix = transposeMatrix(createUnitMatrix(1.0));
-
 
     this.flushSqure(modelMatrix);
     this.flushCircle(modelMatrix);
   }
 
   getIdDataReader() {
-    const gl = this.gl;
+    return this.framebuffer.getAttachmentReader('id');
+  }
 
-    const readPixels = (x: number, y: number, width: number, height: number) => {
-      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+  getDrawStat(): RendererStat {
+    return {
+      flushedSqures: this.stat.flushedSqures,
+      flushedCircles: this.stat.flushedCircles,
 
-      const b = new Uint8Array(width * height * 4);
-
-      gl.readBuffer(gl.COLOR_ATTACHMENT1);
-      gl.readPixels(x, y, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, b);
-
-      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-
-      return b;
+      flushedBatchSquresCount: Math.ceil(this.stat.flushedSqures / lineBufferSize),
+      flushedBatchCirclesCount: Math.ceil(this.stat.flushedCircles / circleBufferSize),
     };
-
-    return { readBuffer: () => readPixels(0, 0, 600, 400), readPixel: (x: number, y: number) => readPixels(x, y, 1, 1) };
   }
 
   private flushSqure(modelMatrix: Matrix) {
     if (this.squreCount !== 0) {
-      this._flushedLine += 1;
+      this.stat.flushedSqures += this.squreCount;
 
-      this.gl.useProgram(this.squreProgram);
+      (shaderStore.getProgram(ShaderProgramIndex.square) as GLProgram).useProgram();
 
-      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.squreVBO);
-      this.gl.bufferData(this.gl.ARRAY_BUFFER, this.squreData, this.gl.STATIC_DRAW);
-
-      this.gl.vertexAttribPointer(0, 3, this.gl.FLOAT, false, Float32Array.BYTES_PER_ELEMENT * dataPerVertex, 0);
-      this.gl.enableVertexAttribArray(0);
-
-      this.gl.vertexAttribPointer(1, 1, this.gl.FLOAT, false, Float32Array.BYTES_PER_ELEMENT * dataPerVertex, Float32Array.BYTES_PER_ELEMENT * 3);
-      this.gl.enableVertexAttribArray(1);
+      this.squreVBO.bind();
+      this.squreVBO.setData(this.squreData);
+      this.squreVBO.activateAllAttribPointers();
 
       if (this.camera) {
-        this.gl.uniformMatrix4fv(this.squreUniforms.modelViewLocation, false, getRawValues(this.camera));
+        (shaderStore.getProgram(ShaderProgramIndex.square) as GLProgram).setMatrix44('MV', getRawValues(this.camera));
       }
-      this.gl.uniformMatrix4fv(this.squreUniforms.modelLocation, false, getRawValues(modelMatrix));
+
+      (shaderStore.getProgram(ShaderProgramIndex.square) as GLProgram).setMatrix44('MM', getRawValues(modelMatrix));
+
       if (this.projection) {
-        this.gl.uniformMatrix4fv(this.squreUniforms.projectionLocation, false, getRawValues(this.projection));
+        (shaderStore.getProgram(ShaderProgramIndex.square) as GLProgram).setMatrix44('P', getRawValues(this.projection));
       }
 
       this.gl.drawArrays(this.gl.TRIANGLES, 0, this.squreCount * 6);
@@ -464,39 +417,28 @@ export class Renderer {
 
   private flushCircle(modelMatrix: Matrix) {
     if (this.circleCount !== 0) {
-      this._flushedCircle += 1;
-      this._lastDrawedCircle = this.circleCount;
+      this.stat.flushedCircles += this.circleCount;
 
-      this.gl.useProgram(this.circleProgram);
+      (shaderStore.getProgram(ShaderProgramIndex.circle) as GLProgram).useProgram();
 
-      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.circleVBO);
-      this.gl.bufferData(this.gl.ARRAY_BUFFER, this.circleData, this.gl.STATIC_DRAW);
-
-      this.gl.vertexAttribPointer(0, 3, this.gl.FLOAT, false, Float32Array.BYTES_PER_ELEMENT * dataPerCircleVertex, 0);
-      this.gl.enableVertexAttribArray(0);
-
-      this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, Float32Array.BYTES_PER_ELEMENT * dataPerCircleVertex, Float32Array.BYTES_PER_ELEMENT * 3);
-      this.gl.enableVertexAttribArray(1);
-
-      this.gl.vertexAttribPointer(2, 1, this.gl.FLOAT, false, Float32Array.BYTES_PER_ELEMENT * dataPerCircleVertex, Float32Array.BYTES_PER_ELEMENT * 5);
-      this.gl.enableVertexAttribArray(2);
+      this.circleVBO.bind();
+      this.circleVBO.setData(this.circleData);
+      this.circleVBO.activateAllAttribPointers();
 
       if (this.camera) {
-        this.gl.uniformMatrix4fv(this.circleUniforms.modelViewLocation, false, getRawValues(this.camera));
+        (shaderStore.getProgram(ShaderProgramIndex.circle) as GLProgram).setMatrix44('MV', getRawValues(this.camera));
       }
-      this.gl.uniformMatrix4fv(this.circleUniforms.modelLocation, false, getRawValues(modelMatrix));
+
+      (shaderStore.getProgram(ShaderProgramIndex.circle) as GLProgram).setMatrix44('MM', getRawValues(modelMatrix));
+
       if (this.projection) {
-        this.gl.uniformMatrix4fv(this.circleUniforms.projectionLocation, false, getRawValues(this.projection));
+        (shaderStore.getProgram(ShaderProgramIndex.circle) as GLProgram).setMatrix44('P', getRawValues(this.projection));
       }
 
       this.gl.drawArrays(this.gl.TRIANGLES, 0, this.circleCount * 6);
     }
 
     this.circleCount = 0;
-  }
-
-  getDrawStat() {
-    return { circleFlushed: this._flushedCircle, drawedCircles: this._lastDrawedCircle + Math.max(0, this._flushedCircle - 1) * circleBufferSize};
   }
 
   private isDataNotFlushed() {
