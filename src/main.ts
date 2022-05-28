@@ -44,7 +44,7 @@ enum DrawMode {
   circle = 'circle',
 }
 
-let mode: DrawMode = DrawMode.line;
+let mode: DrawMode = DrawMode.circle;
 
 const lines: Array<LineComponent> = [
 
@@ -163,7 +163,7 @@ function renderLines() {
 
     if (line.line === nextLines.line) {
       const circle = {
-        position: nextLines.position, radius: 0.1 / 2, id: line.id
+        position: nextLines.position, color: createVec3(1.0, 1.0, 1.0), radius: 0.1 / 2, id: line.id
       };
 
       renderer.drawCircle(circle);
@@ -270,6 +270,7 @@ function handleEvents() {
       if (event.type === 'mousedown' && !drawingCirle) {
         circles.push({
           position: createVec2(event.x, event.y),
+          color: createVec3(1.0, 1.0, 1.0),
           radius: 0.1,
           id: getNewId()
         });
@@ -280,6 +281,7 @@ function handleEvents() {
       if (event.type === 'mousemove' && drawingCirle) {
         circles.push({
           position: createVec2(event.x, event.y),
+          color: createVec3(1.0, 1.0, 1.0),
           radius: 0.1,
           id: getNewId()
         });

@@ -15,10 +15,15 @@ import { AttribType, GLVBO } from './vbo';
 import { GLTexture, TextureConfig, TextureFormat } from './texture';
 import { BufferAttachmentOption, BufferAttacment, GLFramebuffer } from './framebuffer';
 import { RenderStat } from './render-stat';
+import { Vec3 } from 'src/math/vec';
 
 const circleLayout = [
   {
     type: AttribType.FLOAT, // coord
+    componentsCount: 3,
+  },
+  {
+    type: AttribType.FLOAT, // color
     componentsCount: 3,
   },
   {
@@ -34,6 +39,10 @@ const circleLayout = [
 const squareLayout = [
   {
     type: AttribType.FLOAT, // coord
+    componentsCount: 3,
+  },
+  {
+    type: AttribType.FLOAT, // color
     componentsCount: 3,
   },
   {
@@ -179,10 +188,10 @@ export class Renderer {
     const rotate = createRotationMatrix(toRadians(line.rotate), 0, 0);
     const scale = createScaleMatrix(lineLength, 0.1, 1.0);
 
-    this.drawSqure(translate, rotate, scale, line.id);
+    this.drawSqure(translate, rotate, scale, line.color, line.id);
   }
 
-  drawSqure(translate: Matrix | null = null, rotate: Matrix | null = null, scale: Matrix | null = null, id: number) {
+  drawSqure(translate: Matrix | null = null, rotate: Matrix | null = null, scale: Matrix | null = null, color: Vec3, id: number) {
     if (this.squreCount === lineBufferSize) {
       let modelMatrix = transposeMatrix(createUnitMatrix(1.0));
 
@@ -219,37 +228,61 @@ export class Renderer {
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 1] = getMatrixValue(leftTop, 1, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 2] = getMatrixValue(leftTop, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 3] = color.x;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 4] = color.y;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 5] = color.z;
+
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 0 + 6] = id;
 
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 0] = getMatrixValue(rightTop, 0, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 1] = getMatrixValue(rightTop, 1, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 3] = color.x;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 4] = color.y;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 5] = color.z;
+
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 1 + 6] = id;
 
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 3] = color.x;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 4] = color.y;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 5] = color.z;
+
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 2 + 6] = id;
 
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 0] = getMatrixValue(rightBottom, 0, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 1] = getMatrixValue(rightBottom, 1, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 2] = getMatrixValue(rightBottom, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 3] = color.x;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 4] = color.y;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 5] = color.z;
+
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 3 + 6] = id;
 
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 0] = getMatrixValue(rightTop, 0, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 1] = getMatrixValue(rightTop, 1, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 3] = color.x;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 4] = color.y;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 5] = color.z;
+
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 4 + 6] = id;
 
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
     this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 3] = id;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 3] = color.x;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 4] = color.y;
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 5] = color.z;
+
+    this.squreData[this.squreCount * dataPerLine + dataPerLineVertex * 5 + 6] = id;
 
     this.squreCount += 1;
   }
@@ -285,62 +318,86 @@ export class Renderer {
     rightTop =  multiplyMatrix(translate, rightTop);
     rightBottom = multiplyMatrix(translate, rightBottom);
 
-    // const dataPerVertex = 6;
+    const color = circle.color;
     const id = circle.id;
 
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 0] = getMatrixValue(leftTop, 0, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 1] = getMatrixValue(leftTop, 1, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 2] = getMatrixValue(leftTop, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 3] = 0.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 4] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 3] = color.x;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 4] = color.y;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 5] = color.z;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 6] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 7] = 1.0;
+
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 0 + 8] = id;
 
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 0] = getMatrixValue(rightTop, 0, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 1] = getMatrixValue(rightTop, 1, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 3] = 1.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 4] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 3] = color.x;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 4] = color.y;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 5] = color.z;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 6] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 7] = 1.0;
+
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 1 + 8] = id;
 
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 3] = 0.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 4] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 3] = color.x;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 4] = color.y;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 5] = color.z;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 6] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 7] = 0.0;
+
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 2 + 8] = id;
 
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 0] = getMatrixValue(rightBottom, 0, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 1] = getMatrixValue(rightBottom, 1, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 2] = getMatrixValue(rightBottom, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 3] = 1.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 4] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 3] = color.x;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 4] = color.y;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 5] = color.z;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 6] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 7] = 0.0;
+
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 3 + 8] = id;
 
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 0] = getMatrixValue(rightTop, 0, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 1] = getMatrixValue(rightTop, 1, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 2] = getMatrixValue(rightTop, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 3] = 1.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 4] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 3] = color.x;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 4] = color.y;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 5] = color.z;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 6] = 1.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 7] = 1.0;
+
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 4 + 8] = id;
 
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 3] = 0.0;
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 4] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 3] = color.x;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 4] = color.y;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 5] = color.z;
 
-    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 5] = id;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 6] = 0.0;
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 7] = 0.0;
+
+    this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 8] = id;
 
     this.circleCount += 1;
   }
