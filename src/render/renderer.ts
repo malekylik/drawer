@@ -136,12 +136,12 @@ export class Renderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    const colorTexture = new GLTexture(gl, 600, 400, null, colorTexutureOptions);
-    const idTexture = new GLTexture(gl, 600, 400, null, idTexutureOptions);
+    const colorTexture = new GLTexture(gl, screenWidth, screenHeight, null, colorTexutureOptions);
+    const idTexture = new GLTexture(gl, screenWidth, screenHeight, null, idTexutureOptions);
 
     const rbo = gl.createRenderbuffer() as WebGLRenderbuffer;
     gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, 600, 400);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, screenWidth, screenHeight);
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
     const bufferOptions: Array<BufferAttachmentOption> = [

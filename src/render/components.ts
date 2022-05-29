@@ -19,8 +19,8 @@ export interface CircleComponent {
 
 export type Component = LineComponent | CircleComponent;
 
-export function createLine(position: Vec2, length: number, id: number): LineComponent {
-  const color = createVec3(1.0, 1.0, 1.0);
+export function createLine(position: Vec2, length: number, id: number, color?: Vec3): LineComponent {
+  color = color ?? createVec3(1.0, 1.0, 1.0);
 
   return ({
     position,

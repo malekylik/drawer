@@ -17,6 +17,8 @@ import { interpretAsInt32 } from './utils/memory';
 import { shaderStore, ShaderProgramIndex } from './render/shader-store';
 import { GLProgram } from './render/shader';
 import { createFragmentGLShader, createVertexGLShader } from './render/gl-api';
+import { binaryFind } from './utils/array';
+
 import lineVertexShader from './assets/line-vertex.glsl';
 import circleVertexShader from './assets/circle-vertex.glsl';
 import linePixelShader from './assets/line-pixel.glsl';
@@ -24,11 +26,10 @@ import circlePixelShader from './assets/circle-pixel.glsl';
 import textureVertexShader from './assets/texture-vertex.glsl';
 import texturePixelShader from './assets/texture-pixel.glsl';
 
-// import { binaryFind } from './utils/array';
-
 const getNewId = createUniqeIdGenerator(1);
 
 let prevComponentId = -1;
+let prevLineSegment = -1;
 let prevRendererStat: RendererStat = {
   flushedSqures: -1,
   flushedCircles: -1,
@@ -36,15 +37,19 @@ let prevRendererStat: RendererStat = {
   flushedBatchCirclesCount: -1,
 };
 
+let currentComonentId = 0;
+let currentLineStart = -1;
+
 const prevMousePosition = createVec2(-1, -1);
 const mousePosition = createVec2(0, 0);
 
 enum DrawMode {
+  select = 'select',
   line = 'line',
   circle = 'circle',
 }
 
-let mode: DrawMode = DrawMode.circle;
+let mode: DrawMode = DrawMode.select;
 
 const lines: Array<LineComponent> = [
 
@@ -61,7 +66,24 @@ const canvas: HTMLCanvasElement = document.getElementById('canvas') as HTMLCanva
 const componentIdViewer: HTMLSpanElement = document.getElementById('component-id') as HTMLSpanElement;
 const mousePostionViewer: HTMLSpanElement = document.getElementById('mouse-position') as HTMLSpanElement;
 const lineCountViewer: HTMLSpanElement = document.getElementById('line-count') as HTMLSpanElement;
+const lineSegmentViewer: HTMLSpanElement = document.getElementById('line-segment-id') as HTMLSpanElement;
 const circleCountViewer: HTMLSpanElement = document.getElementById('circle-count') as HTMLSpanElement;
+
+const lineSegmentColorInputRed: HTMLInputElement = document.getElementById('line-segment-color-input-red') as HTMLInputElement;
+const lineSegmentColorViewerRed: HTMLSpanElement = document.getElementById('line-segment-color-viewer-red') as HTMLSpanElement;
+const lineSegmentColorInputGreen: HTMLInputElement = document.getElementById('line-segment-color-input-green') as HTMLInputElement;
+const lineSegmentColorViewerGreen: HTMLSpanElement = document.getElementById('line-segment-color-viewer-green') as HTMLSpanElement;
+const lineSegmentColorInputBlue: HTMLInputElement = document.getElementById('line-segment-color-input-blue') as HTMLInputElement;
+const lineSegmentColorViewerBlue: HTMLSpanElement = document.getElementById('line-segment-color-viewer-blue') as HTMLSpanElement;
+const lineSegmentColorViewerResult: HTMLSpanElement = document.getElementById('line-segment-color-viewer-result') as HTMLSpanElement;
+
+const buttonSelectMode: HTMLButtonElement = document.getElementById('select-mode-select') as HTMLButtonElement;
+const buttonLineMode: HTMLButtonElement = document.getElementById('select-mode-drawline') as HTMLButtonElement;
+const buttonCircleMode: HTMLButtonElement = document.getElementById('select-mode-drawcircle') as HTMLButtonElement;
+
+buttonSelectMode.disabled = (mode as DrawMode) === DrawMode.select;
+buttonLineMode.disabled = (mode as DrawMode) === DrawMode.line;
+buttonCircleMode.disabled = (mode as DrawMode) === DrawMode.circle;
 
 canvas.width = screenWidth;
 canvas.height = screenHeight;
@@ -100,6 +122,14 @@ let drawingLine = false;
 let drawingCirle = false;
 
 let lineCount = 0;
+
+function findLineStartIndex(lineIndex: number, lineId: number) {
+  while (lineIndex > 0 && lines[lineIndex - 1]?.line === lineId) {
+    lineIndex -= 1;
+  }
+
+  return lineIndex;
+}
 
 function updateCamera() {
   let isUpdated = false;
@@ -163,7 +193,7 @@ function renderLines() {
 
     if (line.line === nextLines.line) {
       const circle = {
-        position: nextLines.position, color: createVec3(1.0, 1.0, 1.0), radius: 0.1 / 2, id: line.id
+        position: nextLines.position, color: line.color, radius: 0.1 / 2, id: line.id
       };
 
       renderer.drawCircle(circle);
@@ -204,6 +234,20 @@ function handleEvents() {
 
   while (i < eventStack.length) {
     const event = eventStack[i] as CanvasEvent;
+
+    if (mode === DrawMode.select) {
+      if (event.type === 'mousedown') {
+        prevComponentId = currentComonentId;
+
+        const idDataReader = renderer.getIdDataReader();
+
+        idDataReader.bind();
+        const b = renderer.getIdDataReader().readPixel(mousePosition.x, screenHeight - mousePosition.y);
+        idDataReader.unbind();
+
+        currentComonentId = interpretAsInt32(b[0] as number, b[1] as number, b[2] as number, b[3] as number);
+      }
+    }
 
     if (mode === DrawMode.line) {
       if (event.type === 'mousedown' && !drawingLine) {
@@ -313,19 +357,27 @@ function onCamerUpdate() {
 }
 
 function updateHTML() {
-  const idDataReader = renderer.getIdDataReader();
+  if (prevComponentId !== currentComonentId && currentComonentId === 0) {
+    prevLineSegment = -1;
+    currentLineStart = -1;
+    lineSegmentViewer.innerText = `current line segment: ${prevLineSegment}`;
 
-  idDataReader.bind();
-  const b = renderer.getIdDataReader().readPixel(mousePosition.x, screenHeight - mousePosition.y);
-  idDataReader.unbind();
+    lineSegmentColorInputRed.value = '0';
+    lineSegmentColorViewerRed.style.backgroundColor = 'rgb(0, 0, 0)';
 
-  const componentId = interpretAsInt32(b[0] as number, b[1] as number, b[2] as number, b[3] as number);
-  // const component = componentId !== 0 ? binaryFind(lines, 0, lines.length, l => componentId - l.id) : null;
+    lineSegmentColorInputGreen.value = '0';
+    lineSegmentColorViewerGreen.style.backgroundColor = 'rgb(0, 0, 0)';
 
-  if (prevComponentId !== componentId) {
-    componentIdViewer.innerText = `current component id: ${componentId === 0 ? 'no selected component' : componentId}`;
+    lineSegmentColorInputBlue.value = '0';
+    lineSegmentColorViewerBlue.style.backgroundColor = 'rgb(0, 0, 0)';
 
-    prevComponentId = componentId;
+    lineSegmentColorViewerResult.style.backgroundColor = 'rgb(0, 0, 0)';
+  }
+
+  if (prevComponentId !== currentComonentId) {
+    componentIdViewer.innerText = `current component id: ${currentComonentId === 0 ? 'no selected component' : currentComonentId}`;
+
+    prevComponentId = currentComonentId;
   }
 
   if (prevMousePosition.x !== mousePosition.x || prevMousePosition.y !== mousePosition.y) {
@@ -333,6 +385,37 @@ function updateHTML() {
 
     prevMousePosition.x = mousePosition.x;
     prevMousePosition.y = mousePosition.y;
+  }
+
+  const componentIndex = currentComonentId !== 0 ? binaryFind(lines, 0, lines.length, l => currentComonentId - l.id) ?? -1 : -1;
+
+  if (
+    currentComonentId !== 0 &&
+    componentIndex !== -1 &&
+    prevLineSegment !== lines[componentIndex]?.line
+  ) {
+    const line = lines[componentIndex]!;
+
+    lineSegmentViewer.innerText = `current line segment: ${line.line}`;
+
+    prevLineSegment = line.line;
+
+    const lineStartIndex = findLineStartIndex(componentIndex, line.line);
+
+    const lineStart = lines[lineStartIndex]!;
+
+    lineSegmentColorInputRed.value = String(lineStart.color.x * 255);
+    lineSegmentColorViewerRed.style.backgroundColor = `rgb(${lineStart.color.x * 255}, ${0}, ${0})`;
+
+    lineSegmentColorInputGreen.value = String(lineStart.color.y * 255);
+    lineSegmentColorViewerGreen.style.backgroundColor = `rgb(${0}, ${lineStart.color.y * 255}, ${0})`;
+
+    lineSegmentColorInputBlue.value = String(lineStart.color.z * 255);
+    lineSegmentColorViewerBlue.style.backgroundColor = `rgb(${0}, ${0}, ${lineStart.color.z * 255})`;
+
+    lineSegmentColorViewerResult.style.backgroundColor = `rgb(${lineStart.color.x * 255}, ${lineStart.color.y * 255}, ${lineStart.color.z * 255})`;
+
+    currentLineStart = lineStartIndex;
   }
 
   const rendererStat = renderer.getDrawStat();
@@ -349,6 +432,110 @@ function updateHTML() {
     prevRendererStat = rendererStat;
   }
 }
+
+lineSegmentColorInputRed.addEventListener('change', (e) => {
+  const value = Number((e.target as HTMLInputElement).value) ?? -1;
+
+  if (
+    currentComonentId !== 0 &&
+    (value >= 0 || value < 256)
+  ) {
+    let lineStart = currentLineStart;
+
+    lineSegmentColorViewerRed.style.backgroundColor = `rgb(${value}, ${0}, ${0})`;
+    lineSegmentColorViewerResult.style.backgroundColor = `rgb(${value}, ${lines[lineStart]!.color.y * 255}, ${lines[lineStart]!.color.z * 255})`;
+
+    while (lineStart < lines.length && lines[lineStart]?.line === prevLineSegment) {
+      lines[lineStart]!.color.x = value / 255;
+
+      lineStart += 1;
+    }
+  }
+});
+
+lineSegmentColorInputGreen.addEventListener('change', (e) => {
+  const value = Number((e.target as HTMLInputElement).value) ?? -1;
+
+  if (
+    currentComonentId !== 0 &&
+    (value >= 0 || value < 256)
+  ) {
+    let lineStart = currentLineStart;
+
+    lineSegmentColorViewerGreen.style.backgroundColor = `rgb(${0}, ${value}, ${0})`;
+    lineSegmentColorViewerResult.style.backgroundColor = `rgb(${lines[lineStart]!.color.x * 255}, ${value}, ${lines[lineStart]!.color.z * 255})`;
+
+    while (lineStart < lines.length && lines[lineStart]?.line === prevLineSegment) {
+      lines[lineStart]!.color.y = value / 255;
+
+      lineStart += 1;
+    }
+  }
+});
+
+lineSegmentColorInputBlue.addEventListener('change', (e) => {
+  const value = Number((e.target as HTMLInputElement).value) ?? -1;
+
+  if (
+    currentComonentId !== 0 &&
+    (value >= 0 || value < 256)
+  ) {
+    let lineStart = currentLineStart;
+
+    lineSegmentColorViewerBlue.style.backgroundColor = `rgb(${0}, ${0}, ${value})`;
+    lineSegmentColorViewerResult.style.backgroundColor = `rgb(${lines[lineStart]!.color.x * 255}, ${lines[lineStart]!.color.y * 255}, ${value})`;
+
+    while (lineStart < lines.length && lines[lineStart]?.line === prevLineSegment) {
+      lines[lineStart]!.color.z = value / 255;
+
+      lineStart += 1;
+    }
+  }
+});
+
+buttonSelectMode.addEventListener('click', () => {
+  buttonSelectMode.disabled = true;
+  buttonLineMode.disabled = false;
+  buttonCircleMode.disabled = false;
+
+  if (drawingLine) {
+    drawingLine = false;
+
+    lines.pop();
+
+    lineCount += 1;
+  }
+
+  drawingCirle = false;
+
+  mode = DrawMode.select;
+});
+
+buttonLineMode.addEventListener('click', () => {
+  buttonSelectMode.disabled = false;
+  buttonLineMode.disabled = true;
+  buttonCircleMode.disabled = false;
+
+  drawingCirle = false;
+
+  mode = DrawMode.line;
+});
+
+buttonCircleMode.addEventListener('click', () => {
+  buttonSelectMode.disabled = false;
+  buttonLineMode.disabled = false;
+  buttonCircleMode.disabled = true;
+
+  if (drawingLine) {
+    drawingLine = false;
+
+    lines.pop();
+
+    lineCount += 1;
+  }
+
+  mode = DrawMode.circle;
+});
 
 // let cancel = null;
 
