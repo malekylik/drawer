@@ -13,6 +13,7 @@ export enum TextureFormat {
 }
 
 export enum TextureType {
+  BYTE,
   UNSIGNED_BYTE,
 }
 
@@ -47,6 +48,7 @@ function convertToGLTextureFormat(gl: WebGL2RenderingContext, format: TextureFor
 function convertToGLTextureType(gl: WebGLRenderingContext | WebGL2RenderingContext, format: TextureType): number {
   switch (format) {
   case TextureType.UNSIGNED_BYTE: return gl.UNSIGNED_BYTE;
+  case TextureType.BYTE: return gl.BYTE;
   }
 
   return 0;
@@ -105,8 +107,8 @@ export class GLTexture {
     this.height = height;
   }
 
-  bind(gl: WebGLRenderingContext | WebGL2RenderingContext): void {
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+  bind(): void {
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
   }
 
   getTextureUnit(): number {

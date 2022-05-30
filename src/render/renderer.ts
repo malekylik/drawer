@@ -5,17 +5,17 @@ import {
   createTranslationMatrix, createRotationMatrix, createScaleMatrix,
 } from '../math/matix';
 import { paitingLayer } from './const';
-import { CircleComponent, LineComponent } from './components';
+import { CircleComponent, LineComponent, TextComponent } from './components';
 import { toRadians } from '../math/utils';
 
 import { shaderStore, ShaderProgramIndex } from './shader-store';
 import { GLProgram } from './shader';
 import { QUAD_WITH_TEXTURE_COORD_DATA } from './const';
 import { AttribType, GLVBO } from './vbo';
-import { GLTexture, TextureConfig, TextureFormat } from './texture';
+import { GLTexture, TextureConfig, TextureFiltering, TextureFormat, TextureType } from './texture';
 import { BufferAttachmentOption, BufferAttacment, GLFramebuffer } from './framebuffer';
 import { RenderStat } from './render-stat';
-import { Vec3 } from 'src/math/vec';
+import { createVec2, Vec3 } from '../math/vec';
 
 const circleLayout = [
   {
@@ -51,6 +51,25 @@ const squareLayout = [
   },
 ];
 
+const textLayout = [
+  {
+    type: AttribType.FLOAT, // coord
+    componentsCount: 3,
+  },
+  {
+    type: AttribType.FLOAT, // color
+    componentsCount: 3,
+  },
+  {
+    type: AttribType.FLOAT, // uv
+    componentsCount: 2,
+  },
+  {
+    type: AttribType.FLOAT, // id
+    componentsCount: 1,
+  },
+];
+
 const outLayout = [
   {
     type: AttribType.FLOAT, // coord
@@ -66,8 +85,13 @@ const dataPerLineVertex = squareLayout.reduce((prev, curr) => prev + curr.compon
 const dataPerLine = dataPerLineVertex * 6;
 const dataPerCircleVertex = circleLayout.reduce((prev, curr) => prev + curr.componentsCount, 0);
 const dataPerCircle = dataPerCircleVertex * 6;
+const dataPerTextCharVertex = textLayout.reduce((prev, curr) => prev + curr.componentsCount, 0);
+const dataPerTextChar = dataPerTextCharVertex * 6;
 const lineBufferSize = 10000;
 const circleBufferSize = 100;
+
+console.log('dataPerCircleVertex dataPerCircle', dataPerCircleVertex, dataPerCircle);
+console.log('dataPerTextCharVertex dataPerTextChar', dataPerTextCharVertex, dataPerTextChar);
 
 const colorTexutureOptions: TextureConfig = {
   imageFormat: { internalFormat: TextureFormat.RGBA, format: TextureFormat.RGBA }
@@ -83,6 +107,23 @@ export interface RendererStat {
 
   flushedBatchSquresCount: number;
   flushedBatchCirclesCount: number;
+}
+
+export interface FontMeta {
+  atlas: {
+    width: number;
+    height: number;
+    size: number;
+    // distanceRange: 2
+    // type: "sdf"
+    // yOrigin: "bottom"
+  };
+  glyphs: Array<{
+    advance: number;
+    atlasBounds: { left: number; bottom: number; right: number; top: number; };
+    planeBounds: { left: number; bottom: number; right: number; top: number; };
+    unicode: number;
+  }>;
 }
 
 export class Renderer {
@@ -105,11 +146,18 @@ export class Renderer {
 
   private stat: RenderStat;
 
+  private fontData: {
+    texture: GLTexture;
+    meta: FontMeta;
+  } | null;
+
   constructor (gl: WebGL2RenderingContext, screenWidth: number, screenHeight: number) {
     this.gl = gl;
 
     this.projection = null;
     this.camera = null;
+
+    this.fontData = null;
 
     this.squreData = new Float32Array(lineBufferSize * dataPerLine);
     this.circleData = new Float32Array(circleBufferSize * dataPerCircle);
@@ -125,9 +173,9 @@ export class Renderer {
 
     this.mainVBO = new GLVBO(gl, outLayout);
 
-    this.circleVBO = new GLVBO(gl, circleLayout);
+    this.circleVBO = new GLVBO(gl, textLayout);
     this.circleVBO.bind();
-    this.circleVBO.setData(this.circleData);
+    this.circleVBO.setData(this.squreData);
 
     gl.viewport(0, 0, screenWidth, screenHeight);
     gl.enable(gl.DEPTH_TEST);
@@ -157,6 +205,20 @@ export class Renderer {
 
     (shaderStore.getProgram(ShaderProgramIndex.texture) as GLProgram).useProgram();
     (shaderStore.getProgram(ShaderProgramIndex.texture) as GLProgram).setTextureUniform('outTexture', 0); // TODO: why can't use gl.TEXTURE0
+  }
+
+  setFontData(texture: ArrayBuffer, info: FontMeta) {
+    const options = {
+      imageFormat: { internalFormat: TextureFormat.R8, format: TextureFormat.RED, type: TextureType.UNSIGNED_BYTE },
+      filtering: { min: TextureFiltering.LINEAR, mag: TextureFiltering.LINEAR }
+    };
+
+    const gltexture = new GLTexture(this.gl, info.atlas.width, info.atlas.height, new Uint8Array(texture), options);
+
+    this.fontData = {
+      meta: info,
+      texture: gltexture,
+    };
   }
 
   beginScene(projection: Matrix, camera: Matrix) {
@@ -400,6 +462,204 @@ export class Renderer {
     this.circleData[this.circleCount * dataPerCircle + dataPerCircleVertex * 5 + 8] = id;
 
     this.circleCount += 1;
+  }
+
+  drawText(text: TextComponent) {
+    let cursorPosition = createMatrix([text.position.x, text.position.y, paitingLayer, 1.0], 4, 1);
+
+    for (let i = 0; i < text.content.length; i++) {
+      if (text.content[i] === '\n') {
+        cursorPosition = multiplyMatrix(createTranslationMatrix(text.position.x - (getMatrixValue(cursorPosition, 0, 0) as number), -1.0, 0.0), cursorPosition);
+        continue;
+      }
+
+      const scale = createScaleMatrix(1.0, 1.0, 1.0);
+      const rotate = createRotationMatrix(0.0, 0.0, 0.0);
+      const translate = createTranslationMatrix(getMatrixValue(cursorPosition, 0, 0) as number, getMatrixValue(cursorPosition, 1, 0) as number, 0);
+
+      let leftTop = createMatrix([-0.5, 0.5, paitingLayer, 1.0], 4, 1);
+      let leftBottom = createMatrix([-0.5, -0.5, paitingLayer, 1.0], 4, 1);
+      let rightTop = createMatrix([0.5, 0.5, paitingLayer, 1.0], 4, 1);
+      let rightBottom = createMatrix([0.5, -0.5, paitingLayer, 1.0], 4, 1);
+
+      if (scale) {
+        leftTop = multiplyMatrix(scale, leftTop);
+        leftBottom = multiplyMatrix(scale, leftBottom);
+        rightTop = multiplyMatrix(scale, rightTop);
+        rightBottom = multiplyMatrix(scale, rightBottom);
+      }
+
+      if (rotate) {
+        leftTop =  multiplyMatrix(rotate, leftTop);
+        leftBottom = multiplyMatrix(rotate, leftBottom);
+        rightTop =  multiplyMatrix(rotate, rightTop);
+        rightBottom = multiplyMatrix(rotate, rightBottom);
+      }
+
+      if (translate) {
+        leftTop =  multiplyMatrix(translate, leftTop);
+        leftBottom = multiplyMatrix(translate, leftBottom);
+        rightTop =  multiplyMatrix(translate, rightTop);
+        rightBottom = multiplyMatrix(translate, rightBottom);
+      }
+
+      const color = text.color;
+      const id = text.id;
+
+      const charToFind = (text.content[i] as string).charCodeAt(0);
+      // const charToFind = 'G'.charCodeAt(0);
+
+      const leftTopUV = createVec2(0.0, 0.0);
+      const leftBottomUV = createVec2(0.0, 0.0);
+      const rightTopUV = createVec2(0.0, 0.0);
+      const rightBottomUV = createVec2(0.0, 0.0);
+
+
+      if (text.content[i] === ' ') {
+        leftTopUV.x = 0.95;
+        leftTopUV.y = 0.01;
+
+        leftBottomUV.x = 0.95;
+        leftBottomUV.y = 0.0;
+
+        rightTopUV.x = 0.96;
+        rightTopUV.y = 0.01;
+
+        rightBottomUV.x = 0.96;
+        rightBottomUV.y = 0.0;
+      } else {
+        const glyph = this.fontData?.meta.glyphs.find(data => data.unicode === charToFind);
+        const atlasWidth = this.fontData?.meta.atlas.width ?? 1;
+        const atlasHeight = this.fontData?.meta.atlas.height ?? 1;
+
+        leftTopUV.x = (glyph?.atlasBounds.left ?? 0) / atlasWidth;
+        leftTopUV.y = (glyph?.atlasBounds.top ?? 0) / atlasHeight;
+
+        leftBottomUV.x = (glyph?.atlasBounds.left ?? 0) / atlasWidth;
+        leftBottomUV.y = (glyph?.atlasBounds.bottom ?? 0) / atlasHeight;
+
+        rightTopUV.x = (glyph?.atlasBounds.right ?? 0) / atlasWidth;
+        rightTopUV.y = (glyph?.atlasBounds.top ?? 0) / atlasHeight;
+
+        rightBottomUV.x = (glyph?.atlasBounds.right ?? 0) / atlasWidth;
+        rightBottomUV.y = (glyph?.atlasBounds.bottom ?? 0) / atlasHeight;
+        // leftTopUV = createVec2((glyph?.atlasBounds.left ?? 0) / atlasWidth, (glyph?.atlasBounds.top ?? 0) / atlasHeight);
+        // leftBottomUV = createVec2((glyph?.atlasBounds.left ?? 0) / atlasWidth, (glyph?.atlasBounds.bottom ?? 0) / atlasHeight);
+        // rightTopUV = createVec2((glyph?.atlasBounds.right ?? 0) / atlasWidth, (glyph?.atlasBounds.top ?? 0) / atlasHeight);
+        // rightBottomUV = createVec2((glyph?.atlasBounds.right ?? 0) / atlasWidth, (glyph?.atlasBounds.bottom ?? 0) / atlasHeight);
+      }
+
+      // console.log('glyph', glyph);
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 0] = getMatrixValue(leftTop, 0, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 1] = getMatrixValue(leftTop, 1, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 2] = getMatrixValue(leftTop, 2, 0) as number;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 3] = color.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 4] = color.y;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 5] = color.z;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 6] = leftTopUV.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 7] = leftTopUV.y;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 0 + 8] = id;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 0] = getMatrixValue(rightTop, 0, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 1] = getMatrixValue(rightTop, 1, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 2] = getMatrixValue(rightTop, 2, 0) as number;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 3] = color.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 4] = color.y;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 5] = color.z;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 6] = rightTopUV.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 7] = rightTopUV.y;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 1 + 8] = id;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 3] = color.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 4] = color.y;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 5] = color.z;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 6] = leftBottomUV.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 7] = leftBottomUV.y;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 2 + 8] = id;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 0] = getMatrixValue(rightBottom, 0, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 1] = getMatrixValue(rightBottom, 1, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 2] = getMatrixValue(rightBottom, 2, 0) as number;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 3] = color.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 4] = color.y;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 5] = color.z;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 6] = rightBottomUV.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 7] = rightBottomUV.y;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 3 + 8] = id;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 0] = getMatrixValue(rightTop, 0, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 1] = getMatrixValue(rightTop, 1, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 2] = getMatrixValue(rightTop, 2, 0) as number;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 3] = color.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 4] = color.y;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 5] = color.z;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 6] = rightTopUV.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 7] = rightTopUV.y;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 4 + 8] = id;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 0] = getMatrixValue(leftBottom, 0, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 1] = getMatrixValue(leftBottom, 1, 0) as number;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 2] = getMatrixValue(leftBottom, 2, 0) as number;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 3] = color.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 4] = color.y;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 5] = color.z;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 6] = leftBottomUV.x;
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 7] = leftBottomUV.y;
+
+      this.squreData[this.squreCount * dataPerTextChar + dataPerTextCharVertex * 5 + 8] = id;
+
+      this.squreCount += 1;
+
+      cursorPosition = multiplyMatrix(createTranslationMatrix(1.0, 0.0, 0.0), cursorPosition);
+    }
+
+    (shaderStore.getProgram(ShaderProgramIndex.text) as GLProgram).useProgram();
+
+    this.fontData?.texture.activeTexture();
+    this.fontData?.texture.bind();
+
+    (shaderStore.getProgram(ShaderProgramIndex.text) as GLProgram).setTextureUniform('outTexture', 0);
+
+    let modelMatrix = transposeMatrix(createUnitMatrix(1.0));
+
+    this.circleVBO.bind();
+    this.circleVBO.setData(this.squreData);
+    this.circleVBO.activateAllAttribPointers();
+
+    if (this.camera) {
+      (shaderStore.getProgram(ShaderProgramIndex.text) as GLProgram).setMatrix44('MV', getRawValues(this.camera));
+    }
+
+    (shaderStore.getProgram(ShaderProgramIndex.text) as GLProgram).setMatrix44('MM', getRawValues(modelMatrix));
+
+    if (this.projection) {
+      (shaderStore.getProgram(ShaderProgramIndex.text) as GLProgram).setMatrix44('P', getRawValues(this.projection));
+    }
+
+    this.gl.drawArrays(this.gl.TRIANGLES, 0, this.squreCount * 6);
+
+    this.squreCount = 0;
   }
 
   endScene() {

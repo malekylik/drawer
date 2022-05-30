@@ -17,7 +17,14 @@ export interface CircleComponent {
   id: number;
 }
 
-export type Component = LineComponent | CircleComponent;
+export interface TextComponent {
+  position: Vec2;
+  color: Vec3;
+  id: number;
+  content: string;
+}
+
+export type Component = LineComponent | CircleComponent | TextComponent;
 
 export function createLine(position: Vec2, length: number, id: number, color?: Vec3): LineComponent {
   color = color ?? createVec3(1.0, 1.0, 1.0);

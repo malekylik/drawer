@@ -6,6 +6,7 @@ export enum ShaderProgramIndex {
   texture = 0,
   square = 1,
   circle = 2,
+  text = 3,
 }
 
 export class ShaderStore {
