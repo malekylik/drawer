@@ -32,6 +32,10 @@ void main()
 
   fragColor = mix(bgColor, fgColor, opacity);
 
-  uint id = uint(vertexId);
-  fragId = uvec4(id & uint(255), (id >> uint(8)) & uint(255), (id >> uint(16)) & uint(255), (id >> uint(24)) & uint(255));
+  if (opacity == 0.0) {
+    fragId = uvec4(0);
+  } else {
+    uint id = uint(vertexId);
+    fragId = uvec4(id & uint(255), (id >> uint(8)) & uint(255), (id >> uint(16)) & uint(255), (id >> uint(24)) & uint(255));
+  }
 }

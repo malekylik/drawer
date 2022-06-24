@@ -10,7 +10,7 @@ import { convertScreenCoordToWorldCoord, getAngleFromLineProjection } from './ma
 import { bindEvents, CanvasEvent } from './event/canvas-event';
 import { KeyboardKeyCode } from './event/const';
 import { FontMeta, Renderer, RendererStat } from './render/renderer';
-import { LineComponent, CircleComponent, createLine, TextComponent } from './render/components';
+import { LineComponent, CircleComponent, createLine, TextComponent, ComponentType } from './render/component/components';
 import { paitingLayer } from './render/const';
 import { createUniqeIdGenerator } from './utils/uniqeId';
 import { interpretAsInt32 } from './utils/memory';
@@ -18,6 +18,7 @@ import { shaderStore, ShaderProgramIndex } from './render/shader-store';
 import { GLProgram } from './render/shader';
 import { createFragmentGLShader, createVertexGLShader } from './render/gl-api';
 import { binaryFind } from './utils/array';
+import { parseTTF } from './utils/font-fft';
 
 import lineVertexShader from './assets/line-vertex.glsl';
 import circleVertexShader from './assets/circle-vertex.glsl';
@@ -29,28 +30,33 @@ import textVertexShader from './assets/text-vertex.glsl';
 import textPixelShader from './assets/text-pixel.glsl';
 
 async function main () {
-  const [fontBinRes, fontInfoRes] = await Promise.all([
+  const [fontBinRes, fontInfoRes, fontMetaRes] = await Promise.all([
     fetch('./binfont'),
-    fetch('./fontinfo.json')
+    fetch('./fontinfo.json'),
+    fetch('./arial.ttf'),
   ]);
-  const [fontBin, fontInfo] = await Promise.all([
+  const [fontBin, fontInfo, fontMeta] = await Promise.all([
     fontBinRes.arrayBuffer(),
-    fontInfoRes.json()
+    fontInfoRes.json(),
+    fontMetaRes.arrayBuffer(),
   ]);
 
   console.log(fontBin);
   console.log(fontInfo);
 
-  const charToFind = '.'.charCodeAt(0);
+  const charToFind = 'g'.charCodeAt(0);
 
   const _fontInfo: FontMeta = fontInfo;
 
   const glyph = _fontInfo.glyphs.find(data => data.unicode === charToFind);
-  const atlasWidth = _fontInfo.atlas.width ?? 1;
-  const atlasHeight = _fontInfo.atlas.height ?? 1;
+  // const atlasWidth = _fontInfo.atlas.width ?? 1;
+  // const atlasHeight = _fontInfo.atlas.height ?? 1;
 
   console.log(glyph);
 
+  const ttf = parseTTF(new Uint8Array(fontMeta));
+
+  // console.log(ttf);
   // createSDGVisializer(glyph!, new Int8Array(fontBin), (e, v) => {
   //   if (v) {
   //     const _v = v + 127;
@@ -65,56 +71,6 @@ async function main () {
   //   }
   // });
   // createSDGVisializer(glyph!, new Uint8Array(fontBin));
-
-  function createSDGVisializer(glyph: FontMeta['glyphs'][number], arr: Uint8Array | Int8Array, customize = (e: HTMLSpanElement, v?: number) => {}) {
-    const bottom = ((glyph?.atlasBounds.bottom ?? 0) | 0) - 1;
-    const top = (glyph?.atlasBounds.top ?? 0) | 0;
-    const left = (glyph?.atlasBounds.left ?? 0) | 0;
-    const right = Math.ceil(glyph?.atlasBounds.right ?? 0) | 0;
-    const rowSize = right - left;
-    const rowCount = top - bottom;
-
-    const wrapper = document.createElement('div');
-
-    wrapper.style.border = '1px solid black';
-
-    const rows = [];
-
-    for (let j = 0; j < rowCount; j++) {
-      const row = document.createElement('div');
-      row.classList.add('length-row-visualizer');
-
-      for (let i = 0; i < rowSize; i++) {
-        const cell = document.createElement('span');
-        cell.style.display = 'inline-flex';
-        cell.style.border = '1px solid black';
-        cell.style.width = '40px';
-        cell.style.height = '40px';
-        cell.style.justifyContent = 'center';
-        cell.style.alignItems = 'center';
-
-        row.append(cell);
-      }
-
-      wrapper.append(row);
-      rows.push(row);
-    }
-
-    for (let j = top; j > top - rowCount; j--) {
-      for (let i = left; i < left + rowSize; i++) {
-        // console.log(i - left, top - j);
-        const cell = (rows[top - j] as HTMLDivElement).children[i - left];
-
-        if (cell) {
-          customize(cell as HTMLSpanElement, arr[j * atlasWidth + i]);
-          cell.innerHTML = String(arr[j * atlasWidth + i] ?? 999);
-        }
-      }
-    }
-
-    document.body.append(wrapper);
-  }
-
 
   const getNewId = createUniqeIdGenerator(1);
 
@@ -152,10 +108,16 @@ async function main () {
 
   const texts: Array<TextComponent> = [
     {
+      type: ComponentType.text,
+      transformation: {
+        position: createVec2(0, 0),
+        scale: createVec2(1.0 , 1.0),
+        rotate: createVec2(0.0, 0.0),
+      },
       position: createVec2(0, 0),
       color: createVec3(1.0, 1.0, 1.0),
       id: 1000,
-      content: 'Putin chort\n     !'
+      content: '.Putin chogrt\n     !'
     }
   ];
 
@@ -215,7 +177,7 @@ async function main () {
 
   const renderer = new Renderer(gl, screenWidth, screenHeight);
 
-  renderer.setFontData(fontBin, fontInfo);
+  renderer.setFontData(fontBin, fontInfo, ttf);
 
   const near = 0.1;
   const far = 10.0;
@@ -300,7 +262,13 @@ async function main () {
       const nextLines = lines[i + 1] as LineComponent;
 
       if (line.line === nextLines.line) {
-        const circle = {
+        const circle: CircleComponent = {
+          type: ComponentType.circle,
+          transformation: {
+            position: nextLines.position,
+            scale: createVec2(0.1, 0.1),
+            rotate: createVec2(0.0, 0.0),
+          },
           position: nextLines.position, color: line.color, radius: 0.1 / 2, id: line.id
         };
 
@@ -429,6 +397,12 @@ async function main () {
       if (mode === DrawMode.circle) {
         if (event.type === 'mousedown' && !drawingCirle) {
           circles.push({
+            type: ComponentType.circle,
+            transformation: {
+              position: createVec2(event.x, event.y),
+              scale: createVec2(0.1, 0.1),
+              rotate: createVec2(0.0, 0.0),
+            },
             position: createVec2(event.x, event.y),
             color: createVec3(1.0, 1.0, 1.0),
             radius: 0.1,
@@ -440,6 +414,12 @@ async function main () {
 
         if (event.type === 'mousemove' && drawingCirle) {
           circles.push({
+            type: ComponentType.circle,
+            transformation: {
+              position: createVec2(event.x, event.y),
+              scale: createVec2(0.1, 0.1),
+              rotate: createVec2(0.0, 0.0),
+            },
             position: createVec2(event.x, event.y),
             color: createVec3(1.0, 1.0, 1.0),
             radius: 0.1,
